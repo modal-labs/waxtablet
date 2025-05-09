@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any, Dict, Optional, TypeAlias
 
+from .types import CompletionItem, Hover
+
 logger = logging.getLogger(__name__)
 
 Json: TypeAlias = Dict[str, Any]
@@ -281,11 +283,11 @@ class NotebookLsp:
         )
 
     @lsp_locked
-    async def hover(self, cell_id: str, *, line: int, character: int) -> Json | None:
+    async def hover(self, cell_id: str, *, line: int, character: int) -> Hover | None:
         cell = self._get_cell(cell_id)
         if cell is None:
             return None
-        return await self._send(
+        result = await self._send(
             {
                 "method": "textDocument/hover",
                 "params": {
@@ -295,6 +297,7 @@ class NotebookLsp:
             },
             as_request=True,
         )
+        return Hover.parse(result) if result else None
 
     @lsp_locked
     async def completion(
@@ -304,11 +307,11 @@ class NotebookLsp:
         line: int,
         character: int,
         context: Optional[Json] = None,
-    ) -> Json | None:
+    ) -> list[CompletionItem] | None:
         cell = self._get_cell(cell_id)
         if cell is None:
             return None
-        return await self._send(
+        result: dict = await self._send(
             {
                 "method": "textDocument/completion",
                 "params": {
@@ -319,6 +322,13 @@ class NotebookLsp:
             },
             as_request=True,
         )
+        if result is None:
+            return None
+        return [
+            parsed
+            for item in result.get("items", [])
+            if (parsed := CompletionItem.parse(item))
+        ]
 
     @lsp_locked
     async def semantic_tokens(self, cell_id: str) -> Json | None:

@@ -1,24 +1,27 @@
 import asyncio
-from typing import Any
 
 import waxtablet
+from waxtablet.types import CompletionItem, Hover
 
 
-def show_hover_output(hover: Any) -> None:
+def show_hover_output(hover: Hover | None) -> None:
     if hover is None:
         print("No hover information available.")
     else:
-        print(f"hover info for {hover['range']}")
-        print(hover["contents"]["value"])
+        print(f"hover info for {hover.range}")
+        print(hover.contents.value)
+    print("-" * 40)
 
 
-def show_completion_output(completion: Any) -> None:
+def show_completion_output(completion: list[CompletionItem] | None) -> None:
     if completion is None:
         print("No completion information available.")
     else:
-        for item in completion["items"]:
-            print(f"[[[ Completion item: {item['label']} ]]]")
+        for item in completion:
+            print(f"[[[ Completion item: {item.label} ]]]")
             print(item)
+            print()
+    print("-" * 40)
 
 
 async def main():
