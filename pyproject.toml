@@ -16,6 +16,7 @@ dev = ["basedpyright>=1.29.1", "pytest>=8.3.5", "ruff>=0.11.8"]
 
 [tool.ruff]
 lint.select = ["E", "F", "W", "I"]
+lint.ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

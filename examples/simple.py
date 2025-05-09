@@ -33,6 +33,8 @@ async def main():
     show_hover_output(await lsp.hover("cell1", line=0, character=0))
     show_completion_output(await lsp.completion("cell1", line=1, character=3))
 
+    print(await lsp.semantic_tokens("cell1"))
+
     # Clean up
     await lsp.shutdown()
 

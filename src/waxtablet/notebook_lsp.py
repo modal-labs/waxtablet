@@ -94,6 +94,30 @@ class NotebookLsp:
                     "processId": None,
                     "rootUri": None,
                     "capabilities": {
+                        "textDocument": {
+                            "completion": {
+                                "completionItem": {
+                                    "documentationFormat": ["markdown", "plaintext"]
+                                }
+                            },
+                            "hover": {
+                                "contentFormat": ["markdown", "plaintext"],
+                            },
+                            # https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#semanticTokensClientCapabilities
+                            "semanticTokens": {
+                                "requests": {"full": True},
+                                "tokenTypes": (
+                                    "type class enum interface struct typeParameter parameter variable "
+                                    "property enumMember event function method macro keyword modifier "
+                                    "comment string number regexp operator decorator"
+                                ).split(),
+                                "tokenModifiers": (
+                                    "declaration definition readonly static deprecated abstract async "
+                                    "modification documentation defaultLibrary"
+                                ).split(),
+                                "formats": ["relative"],
+                            },
+                        },
                         "notebookDocument": {
                             "synchronization": {
                                 "openClose": True,
@@ -164,6 +188,14 @@ class NotebookLsp:
             }
         )
 
+    def _get_cell(self, cell_id: str) -> Cell | None:
+        """Get the Cell object for the given cell_id."""
+        return next((c for c in self._cells if c.id == cell_id), None)
+
+    def _get_cell_index(self, cell_id: str) -> int:
+        """Get the index for the given cell_id."""
+        return next((i for i, c in enumerate(self._cells) if c.id == cell_id), -1)
+
     @lsp_locked
     async def add_cell(self, cell_id: str, index: int, *, kind: int) -> None:
         """Insert a new empty cell at `index`."""
@@ -192,7 +224,7 @@ class NotebookLsp:
     @lsp_locked
     async def move_cell(self, cell_id: str, new_index: int) -> None:
         """Reorder an existing cell."""
-        old_index = next((i for i, c in enumerate(self._cells) if c.id == cell_id), -1)
+        old_index = self._get_cell_index(cell_id)
         if old_index == -1:
             return
         new_index = max(0, min(len(self._cells, new_index)))
@@ -215,7 +247,7 @@ class NotebookLsp:
     @lsp_locked
     async def remove_cell(self, cell_id: str) -> None:
         """Remove an existing cell."""
-        index = next((i for i, c in enumerate(self._cells) if c.id == cell_id), -1)
+        index = self._get_cell_index(cell_id)
         if index == -1:
             return
         del self._cells[index]
@@ -225,7 +257,7 @@ class NotebookLsp:
 
     @lsp_locked
     async def set_text(self, cell_id: str, new_text: str) -> None:
-        cell = next((c for c in self._cells if c.id == cell_id), None)
+        cell = self._get_cell(cell_id)
         if cell is None:
             return
         cell.version += 1
@@ -250,7 +282,7 @@ class NotebookLsp:
 
     @lsp_locked
     async def hover(self, cell_id: str, *, line: int, character: int) -> Json | None:
-        cell = next((c for c in self._cells if c.id == cell_id), None)
+        cell = self._get_cell(cell_id)
         if cell is None:
             return None
         return await self._send(
@@ -273,7 +305,7 @@ class NotebookLsp:
         character: int,
         context: Optional[Json] = None,
     ) -> Json | None:
-        cell = next((c for c in self._cells if c.id == cell_id), None)
+        cell = self._get_cell(cell_id)
         if cell is None:
             return None
         return await self._send(
@@ -283,6 +315,21 @@ class NotebookLsp:
                     "textDocument": {"uri": cell.uri},
                     "position": {"line": line, "character": character},
                     "context": context or {},
+                },
+            },
+            as_request=True,
+        )
+
+    @lsp_locked
+    async def semantic_tokens(self, cell_id: str) -> Json | None:
+        cell = self._get_cell(cell_id)
+        if cell is None:
+            return None
+        return await self._send(
+            {
+                "method": "textDocument/semanticTokens/full",
+                "params": {
+                    "textDocument": {"uri": cell.uri},
                 },
             },
             as_request=True,
