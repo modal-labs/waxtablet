@@ -1,6 +1,7 @@
-from typing import Any
-from waxtablet import NotebookLsp
 import asyncio
+from typing import Any
+
+from waxtablet import NotebookLsp
 
 
 def show_hover_output(hover: Any) -> None:
