@@ -1,2 +1,4 @@
-def main() -> None:
-    print("Hello from waxtablet!")
+from .notebook_lsp import NotebookLsp
+
+
+__all__ = ["NotebookLsp"]
