@@ -269,7 +269,7 @@ class NotebookLsp:
             msg_id = self._next_id
             self._next_id += 1
             msg["id"] = msg_id
-            fut: asyncio.Future = asyncio.get_event_loop().create_future()
+            fut: asyncio.Future = asyncio.get_running_loop().create_future()
             self._pending[msg_id] = fut
         else:
             msg_id = None
