@@ -1,0 +1,12 @@
+[project]
+name = "waxtablet"
+version = "0.1.0"
+description = "Auto-diffing LSP client for remote Jupyter notebooks."
+readme = "README.md"
+authors = [{ name = "Eric Zhang", email = "ekzhang1@gmail.com" }]
+requires-python = ">=3.9"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
