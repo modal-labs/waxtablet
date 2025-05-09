@@ -1,7 +1,7 @@
 import asyncio
 from typing import Any
 
-from waxtablet import NotebookLsp
+import waxtablet
 
 
 def show_hover_output(hover: Any) -> None:
@@ -22,8 +22,10 @@ def show_completion_output(completion: Any) -> None:
 
 
 async def main():
-    lsp = NotebookLsp()
-    await lsp.open()
+    lsp = waxtablet.NotebookLsp(
+        server=["basedpyright-langserver", "--stdio"],
+    )
+    await lsp.start()
 
     # Example usage
     await lsp.add_cell("cell1", 0, kind=2)
@@ -32,7 +34,7 @@ async def main():
     show_completion_output(await lsp.completion("cell1", line=1, character=3))
 
     # Clean up
-    await lsp.close()
+    await lsp.shutdown()
 
 
 if __name__ == "__main__":

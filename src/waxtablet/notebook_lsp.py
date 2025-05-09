@@ -7,16 +7,16 @@ import sys
 from collections import deque
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TypeAlias
 
 logger = logging.getLogger(__name__)
 
-Json = Dict[str, Any]
+Json: TypeAlias = Dict[str, Any]
 
 
 def _cell_uri(nb_uri: str, cell_id: str) -> str:
-    path = PurePosixPath(nb_uri.removeprefix("file:///"))
-    return f"vscode-notebook-cell://{path}#{cell_id}"
+    path = PurePosixPath(nb_uri.removeprefix("waxtablet-notebook://"))
+    return f"waxtablet-notebook-cell://{path}#{cell_id}"  # NB: VSCode uses "vscode-notebook-cell://"
 
 
 @dataclass
@@ -37,8 +37,11 @@ def lsp_locked(func):
 
 
 class NotebookLsp:
-    PYRIGHT_CMD = ["basedpyright-langserver", "--stdio"]
-    # PYRIGHT_CMD = ["ty", "server"]
+    _started: bool = False
+
+    server: list[str]
+    python_path: str
+    workspace_folders: list[str]
 
     _proc: asyncio.subprocess.Process
     _reader_task: asyncio.Task
@@ -50,9 +53,23 @@ class NotebookLsp:
     _nb_uri: str
     _nb_version: int
 
-    async def open(self) -> None:
+    def __init__(
+        self,
+        *,
+        server: list[str],
+        python_path: str = sys.executable,
+        workspace_folders: list[str] | None = None,
+    ) -> None:
+        self.server = server
+        self.python_path = python_path
+        self.workspace_folders = workspace_folders or []
+
+    async def start(self) -> None:
+        if self._started:
+            raise LspError("LSP server already started")
+
         self._proc = await asyncio.create_subprocess_exec(
-            *self.PYRIGHT_CMD,
+            *self.server,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
         )
@@ -64,8 +81,10 @@ class NotebookLsp:
         self._reader_task = asyncio.create_task(self._read_loop())
 
         self._cells = deque()
-        self._nb_uri = "file:///virtual/notebook.ipynb"
+        self._nb_uri = "waxtablet-notebook:///notebook.ipynb"
         self._nb_version = 1
+
+        self._started = True
 
         # send initialize / initialized
         await self._send(
@@ -73,15 +92,21 @@ class NotebookLsp:
                 "method": "initialize",
                 "params": {
                     "processId": None,
-                    "rootUri": "file:///dev/null",
+                    "rootUri": None,
                     "capabilities": {
                         "notebookDocument": {
-                            "synchronization": {"openClose": True, "change": 1}
+                            "synchronization": {
+                                "openClose": True,
+                                "change": 1,  # TextDocumentSyncKind.Full
+                            },
                         },
                     },
-                    "initializationOptions": {"pythonPath": sys.executable},
+                    "initializationOptions": {
+                        "pythonPath": self.python_path,
+                    },
                     "workspaceFolders": [
-                        # {"uri": "file://root/", "name": "root"},
+                        {"uri": f"file://{folder}", "name": folder}
+                        for folder in self.workspace_folders
                     ],
                 },
             },
@@ -105,7 +130,9 @@ class NotebookLsp:
             }
         )
 
-    async def close(self) -> None:
+    async def shutdown(self) -> None:
+        if not self._started:
+            return
         try:
             # polite shutdown
             await self._send({"method": "shutdown"}, as_request=True)
@@ -116,6 +143,7 @@ class NotebookLsp:
             self._reader_task.cancel()
             self._proc.stdin.close()
             # await self._proc.wait()
+            self._started = False
 
     async def _did_change(self, **cells: Json) -> Json:
         """Boilerplate helper function for sending a didChange notification."""
@@ -315,5 +343,5 @@ class NotebookLsp:
                         fut.set_exception(LspError(json.dumps(msg["error"])))
 
 
-class LspError(Exception):
+class LspError(RuntimeError):
     """Exception raised for errors in LSP responses."""
