@@ -8,13 +8,11 @@ from collections import deque
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import PurePosixPath
-from typing import Any, Dict, Optional, TypeAlias
+from typing import Any, Optional
 
 from .types import CompletionItem, Hover, SemanticToken
 
 logger = logging.getLogger(__name__)
-
-Json: TypeAlias = Dict[str, Any]
 
 
 def _cell_uri(nb_uri: str, cell_id: str) -> str:
@@ -70,7 +68,7 @@ class NotebookLsp:
         *,
         server: list[str],
         python_path: str = sys.executable,
-        workspace_folders: list[str] | None = None,
+        workspace_folders: Optional[list[str]] = None,
     ) -> None:
         self.server = server
         self.python_path = python_path
@@ -186,7 +184,7 @@ class NotebookLsp:
             await self._proc.wait()
             self._started = False
 
-    async def _did_change(self, **cells: Json) -> Json:
+    async def _did_change(self, **cells: dict) -> dict:
         """Boilerplate helper function for sending a didChange notification."""
         self._nb_version += 1
         return await self._send(
@@ -205,7 +203,7 @@ class NotebookLsp:
             }
         )
 
-    def _get_cell(self, cell_id: str) -> Cell | None:
+    def _get_cell(self, cell_id: str) -> Optional[Cell]:
         """Get the Cell object for the given cell_id."""
         return next((c for c in self._cells if c.id == cell_id), None)
 
@@ -298,7 +296,9 @@ class NotebookLsp:
         )
 
     @lsp_locked
-    async def hover(self, cell_id: str, *, line: int, character: int) -> Hover | None:
+    async def hover(
+        self, cell_id: str, *, line: int, character: int
+    ) -> Optional[Hover]:
         cell = self._get_cell(cell_id)
         if cell is None:
             return None
@@ -321,8 +321,8 @@ class NotebookLsp:
         *,
         line: int,
         character: int,
-        context: Optional[Json] = None,
-    ) -> list[CompletionItem] | None:
+        context: Optional[dict] = None,
+    ) -> Optional[list[CompletionItem]]:
         cell = self._get_cell(cell_id)
         if cell is None:
             return None
@@ -346,7 +346,7 @@ class NotebookLsp:
         ]
 
     @lsp_locked
-    async def semantic_tokens(self, cell_id: str) -> list[SemanticToken] | None:
+    async def semantic_tokens(self, cell_id: str) -> Optional[list[SemanticToken]]:
         cell = self._get_cell(cell_id)
         if cell is None:
             return None
@@ -383,7 +383,7 @@ class NotebookLsp:
             parsed.append(SemanticToken(line, start, length, parsed_type, modifiers))
         return parsed
 
-    async def _send(self, msg: Json, *, as_request: bool = False) -> Any:
+    async def _send(self, msg: dict, *, as_request: bool = False) -> Any:
         """
         Send a notification or request.  When `as_request` is True,
         returns the server's result once the matching response arrives.
