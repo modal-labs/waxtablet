@@ -31,7 +31,7 @@ async def main():
     await lsp.start()
 
     # Example usage
-    await lsp.add_cell("cell1", 0, kind=2)
+    await lsp.add_cell("cell1", 0, kind=waxtablet.CellKind.CODE)
     await lsp.set_text("cell1", "print('Hello, world!')\ndic")
     show_hover_output(await lsp.hover("cell1", line=0, character=0))
     show_completion_output(await lsp.completion("cell1", line=1, character=3))

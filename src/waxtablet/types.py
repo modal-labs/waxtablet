@@ -165,3 +165,17 @@ class CompletionItem:
             )
         except (KeyError, TypeError):
             return None
+
+
+## Semantic Tokens
+
+
+@dataclass(frozen=True)
+class SemanticToken:
+    # These are decoded from relative-positioned integers with a legend.
+    # https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_semanticTokens
+    line: str
+    start: int
+    length: int
+    token_type: str
+    token_modifiers: tuple[str, ...] = ()

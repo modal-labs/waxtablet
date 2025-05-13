@@ -1,3 +1,3 @@
-from .notebook_lsp import NotebookLsp
+from .notebook_lsp import CellKind, NotebookLsp
 
-__all__ = ["NotebookLsp"]
+__all__ = ["CellKind", "NotebookLsp"]

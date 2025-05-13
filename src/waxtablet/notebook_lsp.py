@@ -6,10 +6,11 @@ import logging
 import sys
 from collections import deque
 from dataclasses import dataclass
+from enum import IntEnum
 from pathlib import PurePosixPath
 from typing import Any, Dict, Optional, TypeAlias
 
-from .types import CompletionItem, Hover
+from .types import CompletionItem, Hover, SemanticToken
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +22,18 @@ def _cell_uri(nb_uri: str, cell_id: str) -> str:
     return f"waxtablet-notebook-cell://{path}#{cell_id}"  # NB: VSCode uses "vscode-notebook-cell://"
 
 
+class CellKind(IntEnum):
+    """Cell kinds for the LSP protocol."""
+
+    MARKUP = 1  # A markup-cell is formatted source that is used for display.
+    CODE = 2  # A code-cell is source code.
+
+
 @dataclass
 class Cell:
     id: str
     uri: str
-    kind: int  # 1 markdown, 2 code
+    kind: CellKind
     text: str
     version: int
 
@@ -54,6 +62,8 @@ class NotebookLsp:
     _cells: deque[Cell]
     _nb_uri: str
     _nb_version: int
+
+    _semantic_tokens_legend: dict[str, list[str]]  # tokenTypes, tokenModifiers
 
     def __init__(
         self,
@@ -89,7 +99,7 @@ class NotebookLsp:
         self._started = True
 
         # send initialize / initialized
-        await self._send(
+        initialize_resp: dict = await self._send(
             {
                 "method": "initialize",
                 "params": {
@@ -138,6 +148,11 @@ class NotebookLsp:
             },
             as_request=True,
         )
+        server_capabilities = initialize_resp.get("capabilities", {})
+        self._semantic_tokens_legend = server_capabilities.get(
+            "semanticTokensProvider", {}
+        ).get("legend", {})
+
         await self._send({"method": "initialized", "params": {}})
 
         # open an empty notebook
@@ -168,7 +183,7 @@ class NotebookLsp:
         finally:
             self._reader_task.cancel()
             self._proc.stdin.close()
-            # await self._proc.wait()
+            await self._proc.wait()
             self._started = False
 
     async def _did_change(self, **cells: Json) -> Json:
@@ -199,7 +214,7 @@ class NotebookLsp:
         return next((i for i, c in enumerate(self._cells) if c.id == cell_id), -1)
 
     @lsp_locked
-    async def add_cell(self, cell_id: str, index: int, *, kind: int) -> None:
+    async def add_cell(self, cell_id: str, index: int, *, kind: CellKind) -> None:
         """Insert a new empty cell at `index`."""
         index = max(0, min(len(self._cells), index))
         cell_uri = _cell_uri(self._nb_uri, cell_id)
@@ -331,11 +346,11 @@ class NotebookLsp:
         ]
 
     @lsp_locked
-    async def semantic_tokens(self, cell_id: str) -> Json | None:
+    async def semantic_tokens(self, cell_id: str) -> list[SemanticToken] | None:
         cell = self._get_cell(cell_id)
         if cell is None:
             return None
-        return await self._send(
+        result: dict = await self._send(
             {
                 "method": "textDocument/semanticTokens/full",
                 "params": {
@@ -344,6 +359,29 @@ class NotebookLsp:
             },
             as_request=True,
         )
+        encoded_tokens: list[int] = result["data"]
+        parsed: list[SemanticToken] = []
+        line = 0
+        start = 0
+        for i in range(0, len(encoded_tokens), 5):
+            delta_line, delta_start, length, token_type, token_modifiers = (
+                encoded_tokens[i : i + 5]
+            )
+            line += delta_line
+            if delta_line > 0:
+                start = delta_start
+            else:
+                start += delta_start
+            parsed_type = self._semantic_tokens_legend["tokenTypes"][token_type]
+            modifiers = tuple(
+                modifier
+                for i, modifier in enumerate(
+                    self._semantic_tokens_legend["tokenModifiers"]
+                )
+                if (1 << i) & token_modifiers
+            )
+            parsed.append(SemanticToken(line, start, length, parsed_type, modifiers))
+        return parsed
 
     async def _send(self, msg: Json, *, as_request: bool = False) -> Any:
         """
