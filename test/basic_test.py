@@ -68,3 +68,22 @@ async def test_semantic_tokens_identify_builtin_function(
         "builtin",
         "defaultLibrary",
     } & modifiers, "Expected 'builtin' or 'defaultLibrary' modifier on print()"
+
+
+@pytest.mark.asyncio
+async def test_move_cell_preserve_contents(lsp: waxtablet.NotebookLsp) -> None:
+    """Test that moving a cell preserves its contents."""
+    await lsp.add_cell("cellid1", 0, kind=waxtablet.CellKind.CODE)
+    await lsp.set_text("cellid1", "print('Hello, world!')\n")
+
+    await lsp.add_cell("cellid-another", 1, kind=waxtablet.CellKind.CODE)
+
+    # Move the cell to a new position
+    await lsp.move_cell("cellid1", 1)
+
+    # Check that the cell's contents are preserved
+    assert await lsp.hover("cellid1", line=0, character=0) is not None
+
+    # Try deleting the cell
+    await lsp.remove_cell("cellid1")
+    assert await lsp.hover("cellid1", line=0, character=0) is None

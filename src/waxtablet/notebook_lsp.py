@@ -27,6 +27,15 @@ class CellKind(IntEnum):
     CODE = 2  # A code-cell is source code.
 
 
+@dataclass(frozen=True)
+class CellSync:
+    """Cell synchronization information."""
+
+    id: str
+    kind: CellKind
+    source: str | None = None  # Only synchronize source if not `None`
+
+
 @dataclass
 class Cell:
     id: str
@@ -213,6 +222,9 @@ class NotebookLsp:
 
     @lsp_locked
     async def add_cell(self, cell_id: str, index: int, *, kind: CellKind) -> None:
+        return await self._add_cell(cell_id, index, kind=kind)
+
+    async def _add_cell(self, cell_id: str, index: int, *, kind: CellKind) -> None:
         """Insert a new empty cell at `index`."""
         index = max(0, min(len(self._cells), index))
         cell_uri = _cell_uri(self._nb_uri, cell_id)
@@ -237,14 +249,23 @@ class NotebookLsp:
         )
 
     @lsp_locked
-    async def move_cell(self, cell_id: str, new_index: int) -> None:
+    async def move_cell(
+        self, cell_id: str, new_index: int, *, new_kind: CellKind | None = None
+    ) -> None:
         """Reorder an existing cell."""
+        await self._move_cell(cell_id, new_index, new_kind=new_kind)
+
+    async def _move_cell(
+        self, cell_id: str, new_index: int, *, new_kind: CellKind | None = None
+    ) -> None:
         old_index = self._get_cell_index(cell_id)
         if old_index == -1:
             return
-        new_index = max(0, min(len(self._cells, new_index)))
+        new_index = max(0, min(len(self._cells), new_index))
         cell = self._cells[old_index]
         del self._cells[old_index]
+        if new_kind is not None:
+            cell.kind = new_kind
         self._cells.insert(new_index, cell)
         await self._did_change(
             structure={"array": {"start": old_index, "deleteCount": 1, "cells": []}}
@@ -262,6 +283,9 @@ class NotebookLsp:
     @lsp_locked
     async def remove_cell(self, cell_id: str) -> None:
         """Remove an existing cell."""
+        await self._remove_cell(cell_id)
+
+    async def _remove_cell(self, cell_id: str) -> None:
         index = self._get_cell_index(cell_id)
         if index == -1:
             return
@@ -272,9 +296,13 @@ class NotebookLsp:
 
     @lsp_locked
     async def set_text(self, cell_id: str, new_text: str) -> None:
+        return await self._set_text(cell_id, new_text)
+
+    async def _set_text(self, cell_id: str, new_text: str) -> None:
         cell = self._get_cell(cell_id)
-        if cell is None:
+        if cell is None or cell.text == new_text:
             return
+
         cell.version += 1
         cell.text = new_text
 
@@ -294,6 +322,36 @@ class NotebookLsp:
                 }
             ]
         )
+
+    @lsp_locked
+    async def synchronize_cells(self, cells: list[CellSync]) -> None:
+        """Synchronize the order, values, and optionally contents of cells with the server."""
+        new_cell_ids = {cell.id for cell in cells}
+
+        # Remove cells that are no longer present.
+        removed_cell_ids = [
+            cell.id for cell in self._cells if cell.id not in new_cell_ids
+        ]
+        for cell_id in removed_cell_ids:
+            await self._remove_cell(cell_id)
+
+        # Move cells that have changed position, or add cells that are new.
+        for i, new_cell in enumerate(cells):
+            # Check if the cell is already present
+            existing_index = self._get_cell_index(new_cell.id)
+            if existing_index != -1:
+                existing_cell = self._cells[existing_index]
+                if existing_index != i or new_cell.kind != existing_cell.kind:
+                    # Need to move the cell to this new position.
+                    await self._move_cell(new_cell.id, i, new_kind=new_cell.kind)
+            else:
+                # Cell is not present, add a new cell
+                await self._add_cell(new_cell.id, i, kind=new_cell.kind)
+
+        # Edit any cell text that has changed.
+        for new_cell in cells:
+            if new_cell.source is not None:
+                await self._set_text(new_cell.id, new_cell.source)
 
     @lsp_locked
     async def hover(
