@@ -1,6 +1,6 @@
 [project]
 name = "waxtablet"
-version = "0.2.0"
+version = "0.2.1"
 description = "Auto-diffing LSP client for remote Jupyter notebooks."
 readme = "README.md"
 authors = [{ name = "Eric Zhang", email = "ekzhang1@gmail.com" }]
