@@ -143,8 +143,10 @@ class NotebookLsp:
                         "textDocument": {
                             "completion": {
                                 "completionItem": {
-                                    "documentationFormat": ["markdown", "plaintext"]
-                                }
+                                    "documentationFormat": ["markdown", "plaintext"],
+                                    "resolveSupport": {},
+                                },
+                                "contextSupport": True,
                             },
                             "hover": {
                                 "contentFormat": ["markdown", "plaintext"],
@@ -403,6 +405,7 @@ class NotebookLsp:
         line: int,
         character: int,
         context: Optional[dict] = None,
+        eager_resolve_count: int = 30,
     ) -> Optional[list[CompletionItem]]:
         cell = self._get_cell(cell_id)
         if cell is None:
@@ -420,11 +423,25 @@ class NotebookLsp:
         )
         if result is None:
             return None
-        return [
-            parsed
-            for item in result.get("items", [])
-            if (parsed := CompletionItem.parse(item))
-        ]
+        items: list[dict] = result.get("items", [])
+        # Handle sorting the data according to the protocol.
+        items.sort(key=lambda item: (item.get("sortText") or item["label"]).lower())
+
+        # Resolve docs on the first N completion items eagerly, if requested.
+        resolved_items = await asyncio.gather(
+            *(
+                self._send(
+                    {"method": "completionItem/resolve", "params": item},
+                    as_request=True,
+                )
+                for item in items[:eager_resolve_count]
+            )
+        )
+        for i, resolved_item in enumerate(resolved_items):
+            if resolved_item:
+                items[i] = resolved_item
+
+        return [parsed for item in items if (parsed := CompletionItem.parse(item))]
 
     @lsp_locked
     async def semantic_tokens(self, cell_id: str) -> Optional[list[SemanticToken]]:

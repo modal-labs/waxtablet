@@ -106,3 +106,20 @@ async def test_import_in_another_cell(lsp: waxtablet.NotebookLsp) -> None:
         "This module provides access to the mathematical functions"
         in hover.contents.value
     )
+
+
+@pytest.mark.asyncio
+async def test_resolve_completion_docs(lsp: waxtablet.NotebookLsp) -> None:
+    """Test that completion items have documentation resolved."""
+    await lsp.add_cell("cellid1", 0, kind=waxtablet.CellKind.CODE)
+    await lsp.set_text("cellid1", "import sys\nsys.")
+
+    completions: list[CompletionItem] | None = await lsp.completion(
+        "cellid1",
+        line=1,
+        character=4,
+        eager_resolve_count=4,
+    )
+    assert completions, "Expected at least one completion item"
+    assert completions[0].documentation
+    assert completions[3].documentation
