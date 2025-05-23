@@ -16,8 +16,26 @@ logger = logging.getLogger(__name__)
 
 
 def _cell_uri(nb_uri: str, cell_id: str) -> str:
-    path = PurePosixPath(nb_uri.removeprefix("waxtablet-notebook://"))
-    return f"waxtablet-notebook-cell://{path}#{cell_id}"  # NB: VSCode uses "vscode-notebook-cell://"
+    # NB: Pyright doesn't resolve cross-cell dependencies unless the notebook
+    # has a `file://` URI, and each cell is `vscode-notebook-cell://`.
+    path = PurePosixPath(nb_uri.removeprefix("file://"))
+    return f"vscode-notebook-cell://{path}#{cell_id}"
+
+
+def _nb_array_splice(start: int, deletions: int, cells: list[Cell] = []) -> dict:
+    """Construct the .structure.array part of a _did_change() message.
+
+    This is a simple API that splices cells within a given range without
+    being as awkward as the full message. It also produces monotonically
+    increasing execution order as a rough approximation.
+    """
+    return {
+        "array": {
+            "start": start,
+            "deleteCount": deletions,
+            "cells": [{"kind": cell.kind, "document": cell.uri} for cell in cells],
+        }
+    }
 
 
 class CellKind(IntEnum):
@@ -25,6 +43,15 @@ class CellKind(IntEnum):
 
     MARKUP = 1  # A markup-cell is formatted source that is used for display.
     CODE = 2  # A code-cell is source code.
+
+    @property
+    def language_id(self) -> str:
+        """Return the language ID for this cell kind."""
+        if self == CellKind.CODE:
+            return "python"
+        elif self == CellKind.MARKUP:
+            return "markdown"
+        raise ValueError(f"Invalid cell kind: {self}")
 
 
 @dataclass(frozen=True)
@@ -100,7 +127,7 @@ class NotebookLsp:
         self._reader_task = asyncio.create_task(self._read_loop())
 
         self._cells = deque()
-        self._nb_uri = "waxtablet-notebook:///notebook.ipynb"
+        self._nb_uri = "file:///notebook.ipynb"
         self._nb_version = 1
 
         self._started = True
@@ -139,8 +166,7 @@ class NotebookLsp:
                         },
                         "notebookDocument": {
                             "synchronization": {
-                                "openClose": True,
-                                "change": 1,  # TextDocumentSyncKind.Full
+                                "executionSummarySupport": False,
                             },
                         },
                     },
@@ -232,15 +258,11 @@ class NotebookLsp:
         self._cells.insert(index, cell)  # local state
         await self._did_change(
             structure={
-                "array": {
-                    "start": index,
-                    "deleteCount": 0,
-                    "cells": [{"kind": kind, "document": cell_uri}],
-                },
+                **_nb_array_splice(index, 0, [cell]),
                 "didOpen": [
                     {
                         "uri": cell_uri,
-                        "languageId": "python" if kind == 2 else "markdown",
+                        "languageId": kind.language_id,
                         "version": cell.version,
                         "text": "",
                     }
@@ -267,16 +289,19 @@ class NotebookLsp:
         if new_kind is not None:
             cell.kind = new_kind
         self._cells.insert(new_index, cell)
-        await self._did_change(
-            structure={"array": {"start": old_index, "deleteCount": 1, "cells": []}}
-        )
+        await self._did_change(structure=_nb_array_splice(old_index, 1))
         await self._did_change(
             structure={
-                "array": {
-                    "start": new_index,
-                    "deleteCount": 0,
-                    "cells": [{"kind": cell.kind, "document": cell.uri}],
-                }
+                **_nb_array_splice(new_index, 0, [cell]),
+                # Must reopen the cell since deleting it above closed it.
+                "didOpen": [
+                    {
+                        "uri": cell.uri,
+                        "languageId": cell.kind.language_id,
+                        "version": cell.version,
+                        "text": cell.text,
+                    }
+                ],
             }
         )
 
@@ -290,9 +315,7 @@ class NotebookLsp:
         if index == -1:
             return
         del self._cells[index]
-        await self._did_change(
-            structure={"array": {"start": index, "deleteCount": 1, "cells": []}}
-        )
+        await self._did_change(structure=_nb_array_splice(index, 1))
 
     @lsp_locked
     async def set_text(self, cell_id: str, new_text: str) -> None:

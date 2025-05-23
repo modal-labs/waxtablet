@@ -87,3 +87,22 @@ async def test_move_cell_preserve_contents(lsp: waxtablet.NotebookLsp) -> None:
     # Try deleting the cell
     await lsp.remove_cell("cellid1")
     assert await lsp.hover("cellid1", line=0, character=0) is None
+
+
+@pytest.mark.asyncio
+async def test_import_in_another_cell(lsp: waxtablet.NotebookLsp) -> None:
+    """Test that imports in one cell are visible in another cell."""
+    await lsp.add_cell("cellid1", 0, kind=waxtablet.CellKind.CODE)
+    await lsp.set_text("cellid1", "import math\n")
+
+    await lsp.add_cell("cellid2", 1, kind=waxtablet.CellKind.CODE)
+    await lsp.set_text("cellid2", "print(math.pi)\n")
+
+    # Check that the second cell can access the import from the first cell
+    hover = await lsp.hover("cellid2", line=0, character=7)
+    assert hover is not None, "Expected hover information for math.pi"
+    assert "(module) math" in hover.contents.value
+    assert (
+        "This module provides access to the mathematical functions"
+        in hover.contents.value
+    )
